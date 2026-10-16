@@ -1,0 +1,55 @@
+name: Daily Job Alerts
+
+on:
+  schedule:
+    # 09:10 UTC = 11:10 Africa/Harare (UTC+2 year-round).
+    - cron: "10 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-job-alerts
+  cancel-in-progress: false
+
+jobs:
+  send-job-alerts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+      - name: Restore deduplication history
+        uses: actions/cache/restore@v4
+        with:
+          path: .job-alert-state
+          key: daily-job-alert-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            daily-job-alert-state-
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Search, verify, deduplicate and route job alerts
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          # General IT/data/remote digest recipient
+          EMAIL_TO: takaengwa@gmail.com
+          # Dedicated PR/communications recipient and CC
+          PR_EMAIL_TO: telmamtoko@gmail.com
+          PR_EMAIL_CC: takaengwa@gmail.com
+          MAX_PER_CATEGORY: "8"
+          LOOKBACK_DAYS: "14"
+          REQUIRE_FUTURE_DEADLINE: "false"
+          STATE_FILE: .job-alert-state/state.json
+        run: python job_alerts.py
+      - name: Save deduplication history
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .job-alert-state
+          key: daily-job-alert-state-${{ github.run_id }}-${{ github.run_attempt }}
